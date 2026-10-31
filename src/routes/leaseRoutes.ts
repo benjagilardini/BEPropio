@@ -3,21 +3,22 @@ import * as leaseController from '../controllers/leaseController.js';
 import { validate } from '../middleware/validate.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { requireRole } from '../middleware/authorize.js';
+import { uploadContract } from '../middleware/upload.js';
 
 const router = Router();
 
 router.use(authenticate);
 
 // --- Landlord: nested under units ---
-router.post('/units/:unitId/leases', requireRole('landlord'), validate(leaseController.createLeaseSchema), leaseController.create);
+router.post('/units/:unitId/leases', requireRole('landlord'), uploadContract, leaseController.create);
 router.get('/units/:unitId/leases', requireRole('landlord'), leaseController.listByUnit);
 
 // --- Direct access by leaseId ---
 router.get('/leases/:leaseId', leaseController.getById);
 router.put('/leases/:leaseId', requireRole('landlord'), validate(leaseController.updateLeaseSchema), leaseController.update);
 
-// Extraction (stub)
-router.post('/leases/:leaseId/extract', requireRole('landlord'), leaseController.activate); // placeholder
+// Extraction
+router.post('/leases/:leaseId/extract', requireRole('landlord'), leaseController.extract);
 
 // Field confirmation
 router.put('/leases/:leaseId/fields/:fieldIndex/confirm', requireRole('landlord'), leaseController.confirmField);

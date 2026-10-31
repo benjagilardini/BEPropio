@@ -1,6 +1,9 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { leaseService } from '../services/leaseService.js';
+import { extractionService } from '../services/extractionService.js';
+import { invitationService } from '../services/invitationService.js';
+import { fileService } from '../services/fileService.js';
 import { catchAsync } from '../utils/catchAsync.js';
 
 export const createLeaseSchema = z.object({
@@ -63,12 +66,20 @@ export const inviteSchema = z.object({
 });
 
 export const create = catchAsync(async (req: Request, res: Response) => {
-  const file = (req as any).file;
+  const file = (req as any).file as Express.Multer.File | undefined;
+
+  // When using multipart/form-data, body fields may come as strings
+  // Parse JSON fields if the body was sent as a 'data' field
+  let body = req.body;
+  if (typeof body.data === 'string') {
+    body = JSON.parse(body.data);
+  }
+
   const lease = await leaseService.createLease(
     req.user!.userId,
     req.params.unitId as string,
-    req.body,
-    file,
+    body,
+    file ? { originalname: file.originalname, mimetype: file.mimetype, buffer: file.buffer } : undefined,
   );
   res.status(201).json({ data: lease });
 });
@@ -119,6 +130,14 @@ export const correctField = catchAsync(async (req: Request, res: Response) => {
   res.json({ data: field });
 });
 
+export const extract = catchAsync(async (req: Request, res: Response) => {
+  const lease = await extractionService.processLeaseDocument(
+    req.user!.userId,
+    req.params.leaseId as string,
+  );
+  res.json({ data: leaseService.toLeaseDTO(lease) });
+});
+
 export const activate = catchAsync(async (req: Request, res: Response) => {
   const lease = await leaseService.activateLease(
     req.user!.userId,
@@ -152,18 +171,46 @@ export const getUnitForTenant = catchAsync(async (req: Request, res: Response) =
   res.json({ data: unit });
 });
 
-export const inviteTenant = catchAsync(async (_req: Request, res: Response) => {
-  // Will be implemented with invitationService in a later phase
-  res.status(501).json({ message: 'Not yet implemented' });
+export const inviteTenant = catchAsync(async (req: Request, res: Response) => {
+  const result = await invitationService.inviteTenant(
+    req.user!.userId,
+    req.params.leaseId as string,
+    req.body,
+  );
+  res.json(result);
 });
 
-export const resendInvitation = catchAsync(async (_req: Request, res: Response) => {
-  res.status(501).json({ message: 'Not yet implemented' });
+export const resendInvitation = catchAsync(async (req: Request, res: Response) => {
+  const result = await invitationService.resendInvitation(
+    req.user!.userId,
+    req.params.leaseId as string,
+  );
+  res.json(result);
 });
 
-export const downloadDocument = catchAsync(async (_req: Request, res: Response) => {
-  // Will be implemented with fileService (GridFS) in a later phase
-  res.status(501).json({ message: 'Not yet implemented' });
+export const downloadDocument = catchAsync(async (req: Request, res: Response) => {
+  const lease = await leaseService.getById(
+    req.user!.userId,
+    req.params.leaseId as string,
+    req.user!.role,
+  );
+
+  if (!lease.document?.fileId) {
+    res.status(404).json({ message: 'El contrato no tiene documento adjunto' });
+    return;
+  }
+
+  const { stream, filename, contentType, length } = await fileService.downloadFile(
+    (await import('mongoose')).default.Types.ObjectId.createFromHexString(lease.document.fileId),
+  );
+
+  res.set({
+    'Content-Type': contentType,
+    'Content-Disposition': `attachment; filename="${encodeURIComponent(filename)}"`,
+    'Content-Length': String(length),
+  });
+
+  stream.pipe(res);
 });
 
 export const getTenantLeases = catchAsync(async (req: Request, res: Response) => {

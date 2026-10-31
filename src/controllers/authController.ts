@@ -41,6 +41,13 @@ export const resetPasswordSchema = z.object({
   }),
 });
 
+export const acceptInvitationSchema = z.object({
+  body: z.object({
+    token: z.string().min(1, 'Token requerido'),
+    password: passwordSchema,
+  }),
+});
+
 export const register = catchAsync(async (req: Request, res: Response) => {
   const { user, tokens } = await authService.register(req.body);
   authService.setAuthCookies(res, tokens);
@@ -73,6 +80,12 @@ export const forgotPassword = catchAsync(async (req: Request, res: Response) => 
 export const resetPassword = catchAsync(async (req: Request, res: Response) => {
   await authService.resetPassword(req.body.email, req.body.token, req.body.newPassword);
   res.json({ message: 'Contraseña actualizada correctamente' });
+});
+
+export const acceptInvitation = catchAsync(async (req: Request, res: Response) => {
+  const { user, tokens } = await authService.acceptInvitation(req.body.token, req.body.password);
+  authService.setAuthCookies(res, tokens);
+  res.json({ data: user });
 });
 
 export const getMe = catchAsync(async (req: Request, res: Response) => {

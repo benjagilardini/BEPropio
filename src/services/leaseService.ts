@@ -5,6 +5,7 @@ import { AppError } from '../utils/AppError.js';
 import { toDecimal128, decimalToString } from '../utils/decimal.js';
 import { paginate, getSkip, type PaginatedResult } from '../utils/pagination.js';
 import { adjustmentService } from './adjustmentService.js';
+import { fileService } from './fileService.js';
 
 // --- DTOs ---
 
@@ -109,16 +110,21 @@ async function createLease(
     throw AppError.conflict('La unidad ya tiene un contrato activo', 'LEASE_ALREADY_ACTIVE');
   }
 
-  // GridFS upload will be implemented in a later phase
-  // For now, store document metadata if file is provided
-  const documentData = file
-    ? {
-        fileId: new (await import('mongoose')).default.Types.ObjectId(),
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        pageCount: null,
-      }
-    : null;
+  // Upload file to GridFS if provided
+  let documentData = null;
+  if (file) {
+    const fileId = await fileService.uploadFile(file.buffer, file.originalname, file.mimetype, {
+      uploadedBy: landlordId,
+      entityType: 'lease',
+      originalName: file.originalname,
+    });
+    documentData = {
+      fileId,
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      pageCount: null,
+    };
+  }
 
   const lease = await Lease.create({
     unitId,
@@ -255,6 +261,36 @@ async function activateLease(landlordId: string, leaseId: string): Promise<Lease
         'FIELDS_PENDING',
         { pendingFields: pending },
       );
+    }
+  }
+
+  // Apply confirmed/corrected extracted values to lease fields
+  const fieldMap: Record<string, string> = {
+    startDate: 'startDate',
+    endDate: 'endDate',
+    initialRent: 'initialRent',
+    adjustmentIndex: 'adjustmentIndex',
+    adjustmentFrequencyMonths: 'adjustmentFrequencyMonths',
+    securityDeposit: 'securityDeposit',
+    tenantName: 'tenantName',
+    tenantDni: 'tenantDni',
+    tenantEmail: 'tenantEmail',
+  };
+
+  for (const field of lease.extractedFields) {
+    const val = field.status === 'corrected' ? field.correctedValue : field.value;
+    if (val == null) continue;
+    const leaseField = fieldMap[field.fieldName];
+    if (!leaseField) continue;
+
+    if (leaseField === 'startDate' || leaseField === 'endDate') {
+      (lease as any)[leaseField] = new Date(val as string);
+    } else if (leaseField === 'initialRent' || leaseField === 'securityDeposit') {
+      (lease as any)[leaseField] = toDecimal128(String(val));
+    } else if (leaseField === 'adjustmentFrequencyMonths') {
+      (lease as any)[leaseField] = Number(val);
+    } else {
+      (lease as any)[leaseField] = val;
     }
   }
 

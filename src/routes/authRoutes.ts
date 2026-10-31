@@ -12,6 +12,7 @@ router.post('/refresh', authController.refresh);
 router.post('/logout', authController.logout);
 router.post('/forgot-password', forgotPasswordRateLimiter, validate(authController.forgotPasswordSchema), authController.forgotPassword);
 router.post('/reset-password', validate(authController.resetPasswordSchema), authController.resetPassword);
+router.post('/accept-invitation', validate(authController.acceptInvitationSchema), authController.acceptInvitation);
 router.get('/me', authenticate, authController.getMe);
 
 export { router as authRoutes };

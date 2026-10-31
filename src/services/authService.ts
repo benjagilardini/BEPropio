@@ -6,6 +6,8 @@ import { config } from '../config/index.js';
 import { User, type UserDocument } from '../models/User.js';
 import { RefreshToken } from '../models/RefreshToken.js';
 import { AppError } from '../utils/AppError.js';
+import { invitationService } from './invitationService.js';
+import { emailService } from './emailService.js';
 
 // --- DTOs ---
 
@@ -215,8 +217,7 @@ async function forgotPassword(email: string) {
   user.set('passwordResetExpires', new Date(Date.now() + config.passwordResetExpiryMinutes * 60 * 1000));
   await user.save();
 
-  // TODO: Send email with resetToken (Phase 8 - Notifications)
-  // emailService.sendPasswordReset(user.email, resetToken);
+  await emailService.sendPasswordReset(user.email, resetToken);
 }
 
 async function resetPassword(email: string, token: string, newPassword: string) {
@@ -244,6 +245,12 @@ async function resetPassword(email: string, token: string, newPassword: string) 
   await RefreshToken.deleteMany({ userId: user._id });
 }
 
+async function acceptInvitation(token: string, password: string) {
+  const user = await invitationService.acceptInvitation(token, password);
+  const tokens = await generateTokenPair(user as UserDocument);
+  return { user: toUserDTO(user as UserDocument), tokens };
+}
+
 async function getMe(userId: string) {
   const user = await User.findById(userId);
   if (!user) {
@@ -259,6 +266,7 @@ export const authService = {
   logout,
   forgotPassword,
   resetPassword,
+  acceptInvitation,
   getMe,
   setAuthCookies,
   clearAuthCookies,
