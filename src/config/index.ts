@@ -30,7 +30,7 @@ export const config = {
   smtpPort: parseInt(process.env.SMTP_PORT || '587', 10),
   smtpUser: process.env.SMTP_USER || '',
   smtpPass: process.env.SMTP_PASS || '',
-  emailFrom: process.env.EMAIL_FROM || 'noreply@mykey.com.ar',
+  emailFrom: process.env.EMAIL_FROM || 'noreply@propio.com.ar',
 
   // URLs
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
