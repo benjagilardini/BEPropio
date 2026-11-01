@@ -379,7 +379,10 @@ async function getTenantsLeases(tenantId: string) {
       status: lease.status,
       startDate: lease.startDate.toISOString().split('T')[0],
       endDate: lease.endDate.toISOString().split('T')[0],
+      initialRent: decimalToString(lease.initialRent),
       currentRent: decimalToString(lease.initialRent),
+      adjustmentIndex: lease.adjustmentIndex,
+      adjustmentFrequencyMonths: lease.adjustmentFrequencyMonths,
     };
   });
 }
