@@ -29,6 +29,13 @@ const utilityAccountSchema = z.object({
   paidBy: z.enum(['tenant', 'landlord']),
 });
 
+const paymentAccountInputSchema = z.object({
+  holderName: z.string().min(1).max(200),
+  bank: z.string().min(1).max(100),
+  cbuOrCvu: z.string().min(1).max(30),
+  alias: z.string().max(50).nullable().optional(),
+}).nullable().optional();
+
 export const createUnitSchema = z.object({
   body: z.object({
     address: addressSchema,
@@ -39,6 +46,7 @@ export const createUnitSchema = z.object({
     referenceValue: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Formato decimal inválido').nullable().optional(),
     facilities: facilitiesSchema,
     utilityAccounts: z.array(utilityAccountSchema).optional(),
+    paymentAccount: paymentAccountInputSchema,
   }),
 });
 

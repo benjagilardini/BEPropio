@@ -25,6 +25,13 @@ export interface IUtilityAccount {
   paidBy: 'tenant' | 'landlord';
 }
 
+export interface IPaymentAccount {
+  holderName: string;
+  bank: string;
+  cbuOrCvu: string;
+  alias: string | null;
+}
+
 export interface IUnit {
   landlordId: mongoose.Types.ObjectId;
   address: IAddress;
@@ -35,6 +42,7 @@ export interface IUnit {
   referenceValue: mongoose.Types.Decimal128 | null;
   facilities: IFacilities;
   utilityAccounts: IUtilityAccount[];
+  paymentAccount: IPaymentAccount | null;
 }
 
 export interface UnitDocument extends IUnit, Document {
@@ -80,6 +88,16 @@ const utilityAccountSchema = new Schema<IUtilityAccount>(
   { _id: false },
 );
 
+const paymentAccountSchema = new Schema<IPaymentAccount>(
+  {
+    holderName: { type: String, required: true },
+    bank: { type: String, required: true },
+    cbuOrCvu: { type: String, required: true },
+    alias: { type: String, default: null },
+  },
+  { _id: false },
+);
+
 const unitSchema = new Schema<UnitDocument>(
   {
     landlordId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -91,6 +109,7 @@ const unitSchema = new Schema<UnitDocument>(
     referenceValue: { type: Schema.Types.Decimal128, default: null },
     facilities: { type: facilitiesSchema, default: () => ({}) },
     utilityAccounts: { type: [utilityAccountSchema], default: [] },
+    paymentAccount: { type: paymentAccountSchema, default: null },
   },
   { timestamps: true },
 );

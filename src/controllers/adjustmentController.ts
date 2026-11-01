@@ -27,15 +27,19 @@ export const notify = catchAsync(async (_req: Request, res: Response) => {
   res.status(501).json({ message: 'Not yet implemented' });
 });
 
-export const compareIndices = catchAsync(async (_req: Request, res: Response) => {
-  // Will be implemented when index comparison logic is complete
-  res.status(501).json({ message: 'Not yet implemented' });
+export const compareIndices = catchAsync(async (req: Request, res: Response) => {
+  const data = await adjustmentService.compareIndices(
+    req.user!.userId,
+    req.params.leaseId as string,
+  );
+  res.json({ data });
 });
 
 export const getSummary = catchAsync(async (req: Request, res: Response) => {
   const summary = await adjustmentService.getAdjustmentSummary(
     req.user!.userId,
     req.params.leaseId as string,
+    req.user!.role,
   );
   res.json({ data: summary });
 });

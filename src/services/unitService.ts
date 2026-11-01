@@ -16,6 +16,13 @@ interface AddressDTO {
   province: string;
 }
 
+interface PaymentAccountDTO {
+  holderName: string;
+  bank: string;
+  cbuOrCvu: string;
+  alias: string | null;
+}
+
 interface UnitDTO {
   id: string;
   address: AddressDTO;
@@ -31,6 +38,7 @@ interface UnitDTO {
     accountId: string;
     paidBy: string;
   }>;
+  paymentAccount: PaymentAccountDTO | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -55,6 +63,14 @@ function toUnitDTO(unit: any): UnitDTO {
     referenceValue: unit.referenceValue ? decimalToString(unit.referenceValue) : null,
     facilities: unit.facilities || {},
     utilityAccounts: unit.utilityAccounts || [],
+    paymentAccount: unit.paymentAccount
+      ? {
+          holderName: unit.paymentAccount.holderName,
+          bank: unit.paymentAccount.bank,
+          cbuOrCvu: unit.paymentAccount.cbuOrCvu,
+          alias: unit.paymentAccount.alias ?? null,
+        }
+      : null,
     createdAt: unit.createdAt?.toISOString?.() ?? unit.createdAt,
     updatedAt: unit.updatedAt?.toISOString?.() ?? unit.updatedAt,
   };
@@ -92,6 +108,12 @@ export interface CreateUnitInput {
     accountId: string;
     paidBy: 'tenant' | 'landlord';
   }>;
+  paymentAccount?: {
+    holderName: string;
+    bank: string;
+    cbuOrCvu: string;
+    alias?: string | null;
+  } | null;
 }
 
 export interface ListQuery {
@@ -112,6 +134,7 @@ async function createUnit(landlordId: string, data: CreateUnitInput): Promise<Un
     referenceValue: data.referenceValue ? toDecimal128(data.referenceValue) : null,
     facilities: data.facilities || {},
     utilityAccounts: data.utilityAccounts || [],
+    paymentAccount: data.paymentAccount || null,
   });
 
   return toUnitDTO(unit);
