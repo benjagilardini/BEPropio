@@ -11,6 +11,7 @@ export interface IPaymentReceipt {
     fileName: string;
     mimeType: string;
   } | null;
+  message: string | null;
   status: 'submitted' | 'confirmed' | 'flagged';
   reviewNote: string | null;
   reviewedAt: Date | null;
@@ -33,6 +34,7 @@ const paymentReceiptSchema = new Schema<PaymentReceiptDocument>(
       fileName: { type: String },
       mimeType: { type: String },
     },
+    message: { type: String, default: null },
     status: { type: String, enum: ['submitted', 'confirmed', 'flagged'], default: 'submitted' },
     reviewNote: { type: String, default: null },
     reviewedAt: { type: Date, default: null },

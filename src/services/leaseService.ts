@@ -383,6 +383,14 @@ async function getTenantsLeases(tenantId: string) {
       currentRent: decimalToString(lease.initialRent),
       adjustmentIndex: lease.adjustmentIndex,
       adjustmentFrequencyMonths: lease.adjustmentFrequencyMonths,
+      paymentAccount: lease.paymentAccount
+        ? {
+            holderName: lease.paymentAccount.holderName,
+            bank: lease.paymentAccount.bank,
+            cbuOrCvu: lease.paymentAccount.cbuOrCvu,
+            alias: lease.paymentAccount.alias ?? null,
+          }
+        : null,
     };
   });
 }

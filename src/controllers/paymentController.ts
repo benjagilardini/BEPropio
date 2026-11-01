@@ -6,8 +6,9 @@ import { catchAsync } from '../utils/catchAsync.js';
 export const createPaymentSchema = z.object({
   body: z.object({
     period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Formato YYYY-MM'),
-    amount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Monto decimal válido'),
-    paymentDate: z.string().datetime(),
+    amount: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Monto decimal válido').optional(),
+    paymentDate: z.string(),
+    message: z.string().max(500).optional(),
   }),
   params: z.object({ leaseId: z.string() }),
 });
@@ -20,7 +21,10 @@ export const flagPaymentSchema = z.object({
 });
 
 export const create = catchAsync(async (req: Request, res: Response) => {
-  const payment = await paymentService.createPayment(req.user!.userId, req.params.leaseId as string, req.body);
+  const file = req.file
+    ? { buffer: req.file.buffer, originalname: req.file.originalname, mimetype: req.file.mimetype }
+    : undefined;
+  const payment = await paymentService.createPayment(req.user!.userId, req.params.leaseId as string, req.body, file);
   res.status(201).json({ data: payment });
 });
 
@@ -44,6 +48,17 @@ export const flag = catchAsync(async (req: Request, res: Response) => {
   res.json({ data: payment });
 });
 
-export const downloadFile = catchAsync(async (_req: Request, res: Response) => {
-  res.status(501).json({ message: 'Not yet implemented' });
+export const downloadFile = catchAsync(async (req: Request, res: Response) => {
+  const { stream, filename, contentType, length } = await paymentService.downloadFile(
+    req.user!.userId,
+    req.params.leaseId as string,
+    req.params.paymentId as string,
+    req.user!.role,
+  );
+  res.set({
+    'Content-Type': contentType,
+    'Content-Disposition': `inline; filename="${encodeURIComponent(filename)}"`,
+    'Content-Length': String(length),
+  });
+  stream.pipe(res);
 });

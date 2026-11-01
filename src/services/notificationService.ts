@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { Notification } from '../models/Notification.js';
 import { AppError } from '../utils/AppError.js';
 import { paginate, getSkip, type PaginatedResult } from '../utils/pagination.js';
+import { getIO } from '../config/socket.js';
 
 interface CreateNotificationInput {
   userId: string;
@@ -39,7 +40,7 @@ function toNotificationDTO(n: any): NotificationDTO {
 }
 
 async function create(input: CreateNotificationInput) {
-  return Notification.create({
+  const notification = await Notification.create({
     userId: input.userId,
     type: input.type,
     title: input.title,
@@ -53,6 +54,12 @@ async function create(input: CreateNotificationInput) {
         }
       : null,
   });
+
+  try {
+    getIO().to(`user:${input.userId}`).emit('notification', toNotificationDTO(notification));
+  } catch { /* socket not initialized in tests */ }
+
+  return notification;
 }
 
 async function listForUser(
