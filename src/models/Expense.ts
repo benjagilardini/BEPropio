@@ -7,6 +7,7 @@ export interface IExpense {
   category: 'tax' | 'insurance' | 'maintenance' | 'condominiumFees' | 'other';
   concept: string;
   amount: mongoose.Types.Decimal128;
+  paidBy: 'landlord' | 'tenant';
 }
 
 export interface ExpenseDocument extends IExpense, Document {
@@ -22,6 +23,7 @@ const expenseSchema = new Schema<ExpenseDocument>(
     category: { type: String, enum: ['tax', 'insurance', 'maintenance', 'condominiumFees', 'other'], required: true },
     concept: { type: String, required: true },
     amount: { type: Schema.Types.Decimal128, required: true },
+    paidBy: { type: String, enum: ['landlord', 'tenant'], default: 'landlord' },
   },
   { timestamps: true },
 );

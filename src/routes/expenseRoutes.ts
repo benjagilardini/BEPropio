@@ -8,6 +8,7 @@ const router = Router();
 
 router.use(authenticate, requireRole('landlord'));
 
+router.get('/yield/annual', expenseController.getAnnualYield);
 router.post('/units/:unitId/expenses', validate(expenseController.createExpenseSchema), expenseController.create);
 router.get('/units/:unitId/expenses', expenseController.list);
 router.get('/units/:unitId/expenses/:id', expenseController.getById);

@@ -10,6 +10,7 @@ export const createExpenseSchema = z.object({
     category: z.enum(['tax', 'insurance', 'maintenance', 'condominiumFees', 'other']),
     concept: z.string().min(1).max(200),
     amount: z.string().regex(/^\d+(\.\d{1,2})?$/),
+    paidBy: z.enum(['landlord', 'tenant']).optional(),
     maintenanceRequestId: z.string().optional(),
   }),
   params: z.object({ unitId: z.string() }),
@@ -21,6 +22,7 @@ export const updateExpenseSchema = z.object({
     category: z.enum(['tax', 'insurance', 'maintenance', 'condominiumFees', 'other']).optional(),
     concept: z.string().min(1).max(200).optional(),
     amount: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+    paidBy: z.enum(['landlord', 'tenant']).optional(),
   }),
   params: z.object({ unitId: z.string(), id: z.string() }),
 });
@@ -52,5 +54,15 @@ export const remove = catchAsync(async (req: Request, res: Response) => {
 
 export const calculateYield = catchAsync(async (req: Request, res: Response) => {
   const result = await yieldService.calculateYield(req.user!.userId, req.params.unitId as string);
+  res.json({ data: result });
+});
+
+export const getAnnualYield = catchAsync(async (req: Request, res: Response) => {
+  const { unitId, year } = req.query as { unitId?: string; year?: string };
+  if (!unitId || !year) {
+    res.status(400).json({ message: 'unitId y year son obligatorios' });
+    return;
+  }
+  const result = await yieldService.calculateAnnualYield(req.user!.userId, unitId, parseInt(year, 10));
   res.json({ data: result });
 });

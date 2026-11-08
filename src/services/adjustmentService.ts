@@ -573,6 +573,8 @@ async function simulateIndexEvolution(
   if (windowEnd > previousDate) {
     const months = (windowEnd.getTime() - previousDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
     totalCollected += currentRent * months;
+    // Add closing point so the chart extends to the contract end
+    history.push({ date: windowEnd.toISOString(), rent: currentRent.toFixed(2) });
   }
 
   const totalVariation = baseRent > 0 ? (currentRent / baseRent - 1) * 100 : 0;
@@ -631,5 +633,6 @@ export const adjustmentService = {
   getAdjustmentSummary,
   compareIndices,
   calculateCoefficients,
+  simulateIndexEvolution,
   toAdjustmentDTO,
 };

@@ -19,6 +19,7 @@ Campos a extraer:
 - adjustmentIndex: índice de actualización (responder exactamente "IPC", "ICL" o "UVA" según lo que diga el contrato)
 - adjustmentFrequencyMonths: cada cuántos meses se ajusta el alquiler (número entero)
 - securityDeposit: monto del depósito de garantía (solo número, mismo formato que initialRent)
+- expenseResponsibility: un arreglo JSON que indica quién paga cada tipo de gasto según el contrato. Para cada tipo de gasto mencionado explícitamente en el contrato, indicar quién lo paga. Tipos posibles: "tax" (impuestos inmobiliarios/ABL), "insurance" (seguros), "maintenance" (reparaciones/mantenimiento), "condominiumFees" (expensas), "other" (otros gastos). Formato: [{"category": "tax", "paidBy": "landlord"}, {"category": "condominiumFees", "paidBy": "tenant"}]. Usar "landlord" para locador/propietario y "tenant" para locatario/inquilino. Solo incluir las categorías que el contrato mencione explícitamente.
 
 Respondé SOLO con un JSON válido con esta estructura:
 {

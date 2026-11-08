@@ -12,6 +12,7 @@ interface ExpenseDTO {
   category: string;
   concept: string;
   amount: string;
+  paidBy: string;
   createdAt: string;
 }
 
@@ -24,6 +25,7 @@ function toExpenseDTO(e: any): ExpenseDTO {
     category: e.category,
     concept: e.concept,
     amount: decimalToString(e.amount),
+    paidBy: e.paidBy || 'landlord',
     createdAt: e.createdAt?.toISOString?.() ?? e.createdAt,
   };
 }
@@ -31,7 +33,7 @@ function toExpenseDTO(e: any): ExpenseDTO {
 async function createExpense(
   landlordId: string,
   unitId: string,
-  data: { date: string; category: string; concept: string; amount: string; maintenanceRequestId?: string },
+  data: { date: string; category: string; concept: string; amount: string; paidBy?: string; maintenanceRequestId?: string },
 ): Promise<ExpenseDTO> {
   const unit = await Unit.findOne({ _id: unitId, landlordId });
   if (!unit) throw AppError.notFound('Unidad no encontrada', 'UNIT_NOT_FOUND');
@@ -43,6 +45,7 @@ async function createExpense(
     category: data.category as any,
     concept: data.concept,
     amount: toDecimal128(data.amount),
+    paidBy: (data.paidBy === 'tenant' ? 'tenant' : 'landlord') as 'landlord' | 'tenant',
   });
 
   return toExpenseDTO(expense);
@@ -51,7 +54,7 @@ async function createExpense(
 async function listExpenses(
   landlordId: string,
   unitId: string,
-  query: { from?: string; to?: string; category?: string; page?: number; limit?: number },
+  query: { from?: string; to?: string; category?: string; paidBy?: string; page?: number; limit?: number },
 ): Promise<PaginatedResult<ExpenseDTO>> {
   const unit = await Unit.findOne({ _id: unitId, landlordId });
   if (!unit) throw AppError.notFound('Unidad no encontrada', 'UNIT_NOT_FOUND');
@@ -64,6 +67,7 @@ async function listExpenses(
     filter.date = dateFilter;
   }
   if (query.category) filter.category = query.category;
+  if (query.paidBy) filter.paidBy = query.paidBy;
 
   const page = query.page ?? 1;
   const limit = query.limit ?? 50;

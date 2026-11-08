@@ -23,6 +23,11 @@ export interface IPaymentAccount {
   alias: string | null;
 }
 
+export interface IExpenseResponsibility {
+  category: 'tax' | 'insurance' | 'maintenance' | 'condominiumFees' | 'other';
+  paidBy: 'landlord' | 'tenant';
+}
+
 export interface ILease {
   unitId: mongoose.Types.ObjectId;
   landlordId: mongoose.Types.ObjectId;
@@ -37,6 +42,7 @@ export interface ILease {
   document: ILeaseDocument | null;
   extractedFields: IExtractedField[];
   paymentAccount: IPaymentAccount | null;
+  expenseResponsibility: IExpenseResponsibility[];
   endedAt: Date | null;
   tenantName: string | null;
   tenantDni: string | null;
@@ -79,6 +85,14 @@ const paymentAccountSchema = new Schema<IPaymentAccount>(
   { _id: false },
 );
 
+const expenseResponsibilitySchema = new Schema<IExpenseResponsibility>(
+  {
+    category: { type: String, enum: ['tax', 'insurance', 'maintenance', 'condominiumFees', 'other'], required: true },
+    paidBy: { type: String, enum: ['landlord', 'tenant'], required: true },
+  },
+  { _id: false },
+);
+
 const leaseSchema = new Schema<LeaseDocument>(
   {
     unitId: { type: Schema.Types.ObjectId, ref: 'Unit', required: true },
@@ -94,6 +108,7 @@ const leaseSchema = new Schema<LeaseDocument>(
     document: { type: leaseDocumentSchema, default: null },
     extractedFields: { type: [extractedFieldSchema], default: [] },
     paymentAccount: { type: paymentAccountSchema, default: null },
+    expenseResponsibility: { type: [expenseResponsibilitySchema], default: [] },
     endedAt: { type: Date, default: null },
     tenantName: { type: String, default: null },
     tenantDni: { type: String, default: null },

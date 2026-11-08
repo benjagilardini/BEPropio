@@ -40,6 +40,10 @@ interface LeaseDTO {
     cbuOrCvu: string;
     alias: string | null;
   } | null;
+  expenseResponsibility: Array<{
+    category: string;
+    paidBy: string;
+  }>;
   endedAt: string | null;
   tenantName: string | null;
   tenantDni: string | null;
@@ -71,6 +75,10 @@ function toLeaseDTO(lease: any): LeaseDTO {
       : null,
     extractedFields: lease.extractedFields || [],
     paymentAccount: lease.paymentAccount || null,
+    expenseResponsibility: (lease.expenseResponsibility || []).map((er: any) => ({
+      category: er.category,
+      paidBy: er.paidBy,
+    })),
     endedAt: lease.endedAt ? new Date(lease.endedAt).toISOString() : null,
     tenantName: lease.tenantName ?? null,
     tenantDni: lease.tenantDni ?? null,
@@ -280,6 +288,18 @@ async function activateLease(landlordId: string, leaseId: string): Promise<Lease
   for (const field of lease.extractedFields) {
     const val = field.status === 'corrected' ? field.correctedValue : field.value;
     if (val == null) continue;
+
+    // Handle expenseResponsibility separately
+    if (field.fieldName === 'expenseResponsibility') {
+      const arr = Array.isArray(val) ? val : [];
+      const validCategories = new Set(['tax', 'insurance', 'maintenance', 'condominiumFees', 'other']);
+      const validPaidBy = new Set(['landlord', 'tenant']);
+      lease.expenseResponsibility = arr
+        .filter((e: any) => validCategories.has(e.category) && validPaidBy.has(e.paidBy))
+        .map((e: any) => ({ category: e.category, paidBy: e.paidBy }));
+      continue;
+    }
+
     const leaseField = fieldMap[field.fieldName];
     if (!leaseField) continue;
 
