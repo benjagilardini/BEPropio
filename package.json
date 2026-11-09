@@ -10,8 +10,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src/",
-    "sync-indices": "tsx scripts/sync-indices.ts"
+    "lint": "eslint src/"
   },
   "keywords": [],
   "author": "",
@@ -29,6 +28,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.11.3",
     "multer": "^2.5.0",
+    "node-cron": "^4.6.0",
     "nodemailer": "^10.2.1",
     "openai": "^7.47.0",
     "pdf-parse": "^2.4.5",
@@ -43,6 +43,7 @@
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.3.0",
+    "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^8.0.2",
     "@types/supertest": "^7.2.1",
     "mongodb-memory-server": "^11.3.0",

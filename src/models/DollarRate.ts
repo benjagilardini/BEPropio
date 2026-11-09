@@ -2,7 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IDollarRate {
   type: 'oficial' | 'blue';
-  date: string;   // "2025-01-15"
+  date: string;
   compra: number;
   venta: number;
 }

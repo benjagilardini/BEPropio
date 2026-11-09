@@ -44,6 +44,8 @@ export interface ILease {
   paymentAccount: IPaymentAccount | null;
   expenseResponsibility: IExpenseResponsibility[];
   endedAt: Date | null;
+  restitutionDate: Date | null;
+  unitDestination: 'vacant' | 'renew' | null;
   tenantName: string | null;
   tenantDni: string | null;
   tenantEmail: string | null;
@@ -110,6 +112,8 @@ const leaseSchema = new Schema<LeaseDocument>(
     paymentAccount: { type: paymentAccountSchema, default: null },
     expenseResponsibility: { type: [expenseResponsibilitySchema], default: [] },
     endedAt: { type: Date, default: null },
+    restitutionDate: { type: Date, default: null },
+    unitDestination: { type: String, enum: ['vacant', 'renew'], default: null },
     tenantName: { type: String, default: null },
     tenantDni: { type: String, default: null },
     tenantEmail: { type: String, default: null },

@@ -11,7 +11,7 @@ export interface IRentAdjustment {
   minAmount: mongoose.Types.Decimal128;
   maxAmount: mongoose.Types.Decimal128;
   pendingPeriods: string[];
-  status: 'pending' | 'estimated' | 'confirmed';
+  status: 'estimated' | 'final';
 }
 
 export interface RentAdjustmentDocument extends IRentAdjustment, Document {
@@ -31,7 +31,7 @@ const rentAdjustmentSchema = new Schema<RentAdjustmentDocument>(
     minAmount: { type: Schema.Types.Decimal128, required: true },
     maxAmount: { type: Schema.Types.Decimal128, required: true },
     pendingPeriods: { type: [String], default: [] },
-    status: { type: String, enum: ['pending', 'estimated', 'confirmed'], default: 'pending' },
+    status: { type: String, enum: ['estimated', 'final'], default: 'estimated' },
   },
   { timestamps: true },
 );

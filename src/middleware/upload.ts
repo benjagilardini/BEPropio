@@ -28,3 +28,16 @@ export const uploadReceipt = multer({
     }
   },
 }).single('file');
+
+export const uploadPhotos = multer({
+  storage,
+  limits: { fileSize: config.maxImageSize },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten imágenes (JPEG, PNG, WebP)'));
+    }
+  },
+}).array('photos', 5);
