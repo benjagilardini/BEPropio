@@ -4,6 +4,7 @@ import { leaseService } from '../services/leaseService.js';
 import { extractionService } from '../services/extractionService.js';
 import { invitationService } from '../services/invitationService.js';
 import { fileService } from '../services/fileService.js';
+import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 
 export const createLeaseSchema = z.object({
@@ -66,13 +67,15 @@ export const inviteSchema = z.object({
 });
 
 export const create = catchAsync(async (req: Request, res: Response) => {
-  const file = (req as any).file as Express.Multer.File | undefined;
+  const file = req.file as Express.Multer.File | undefined;
 
-  // When using multipart/form-data, body fields may come as strings
-  // Parse JSON fields if the body was sent as a 'data' field
   let body = req.body;
   if (typeof body.data === 'string') {
-    body = JSON.parse(body.data);
+    try {
+      body = JSON.parse(body.data);
+    } catch {
+      throw AppError.badRequest('JSON de datos inválido', 'INVALID_JSON');
+    }
   }
 
   const lease = await leaseService.createLease(
@@ -155,10 +158,19 @@ export const updatePaymentAccount = catchAsync(async (req: Request, res: Respons
   res.json({ data: lease });
 });
 
+export const endLeaseSchema = z.object({
+  body: z.object({
+    restitutionDate: z.string().date().optional(),
+    unitDestination: z.enum(['vacant', 'renew']).optional(),
+  }),
+  params: z.object({ leaseId: z.string() }),
+});
+
 export const endLease = catchAsync(async (req: Request, res: Response) => {
   const lease = await leaseService.endLease(
     req.user!.userId,
     req.params.leaseId as string,
+    req.body,
   );
   res.json({ data: lease });
 });
@@ -196,8 +208,7 @@ export const downloadDocument = catchAsync(async (req: Request, res: Response) =
   );
 
   if (!lease.document?.fileId) {
-    res.status(404).json({ message: 'El contrato no tiene documento adjunto' });
-    return;
+    throw AppError.notFound('El contrato no tiene documento adjunto', 'DOCUMENT_NOT_FOUND');
   }
 
   const { stream, filename, contentType, length } = await fileService.downloadFile(

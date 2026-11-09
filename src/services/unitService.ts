@@ -1,10 +1,9 @@
+import mongoose from 'mongoose';
 import { Unit, type UnitDocument } from '../models/Unit.js';
 import { Lease } from '../models/Lease.js';
 import { AppError } from '../utils/AppError.js';
 import { toDecimal128, decimalToString } from '../utils/decimal.js';
-import { paginate, getSkip, type PaginatedResult } from '../utils/pagination.js';
-
-// --- DTOs ---
+import { paginate, getSkip, DEFAULT_LIMIT, type PaginatedResult } from '../utils/pagination.js';
 
 interface AddressDTO {
   street: string;
@@ -84,8 +83,6 @@ function toUnitListDTO(unit: any): Omit<UnitListDTO, 'isOccupied' | 'tenant' | '
   };
 }
 
-// --- Inputs ---
-
 export interface CreateUnitInput {
   address: {
     street: string;
@@ -121,8 +118,6 @@ export interface ListQuery {
   limit?: number;
 }
 
-// --- Service ---
-
 async function createUnit(landlordId: string, data: CreateUnitInput): Promise<UnitDTO> {
   const unit = await Unit.create({
     landlordId,
@@ -142,7 +137,7 @@ async function createUnit(landlordId: string, data: CreateUnitInput): Promise<Un
 
 async function listUnits(landlordId: string, query: ListQuery): Promise<PaginatedResult<UnitListDTO>> {
   const page = query.page ?? 1;
-  const limit = query.limit ?? 20;
+  const limit = query.limit ?? DEFAULT_LIMIT;
   const skip = getSkip(page, limit);
 
   const [units, total] = await Promise.all([
@@ -154,26 +149,38 @@ async function listUnits(landlordId: string, query: ListQuery): Promise<Paginate
     Unit.countDocuments({ landlordId }),
   ]);
 
-  const enriched: UnitListDTO[] = await Promise.all(
-    units.map(async (unit) => {
-      const activeLease = await Lease.findOne({
-        unitId: unit._id,
-        status: 'active',
-      }).populate('tenantId', 'firstName lastName').lean();
+  const unitIds = units.map((u) => u._id);
+  const activeLeases = await Lease.find({
+    unitId: { $in: unitIds },
+    status: 'active',
+  }).populate('tenantId', 'firstName lastName').lean();
 
-      const tenant = activeLease?.tenantId as any;
-      return {
-        ...toUnitListDTO(unit),
-        isOccupied: !!activeLease,
-        tenant: tenant?.firstName
-          ? { name: `${tenant.firstName} ${tenant.lastName}` }
-          : null,
-        currentRent: activeLease?.initialRent
-          ? decimalToString(activeLease.initialRent)
-          : null,
-      };
-    }),
-  );
+  interface PopulatedTenant { firstName: string; lastName: string }
+  type LeaseWithPopulatedTenant = typeof activeLeases[number] & {
+    tenantId: PopulatedTenant | mongoose.Types.ObjectId | null;
+  };
+
+  const leaseByUnitId = new Map<string, LeaseWithPopulatedTenant>();
+  for (const lease of activeLeases) {
+    leaseByUnitId.set(lease.unitId.toString(), lease as LeaseWithPopulatedTenant);
+  }
+
+  const enriched: UnitListDTO[] = units.map((unit) => {
+    const activeLease = leaseByUnitId.get(unit._id.toString());
+    const tenant = activeLease?.tenantId != null && typeof activeLease.tenantId === 'object' && 'firstName' in activeLease.tenantId
+      ? activeLease.tenantId as PopulatedTenant
+      : null;
+    return {
+      ...toUnitListDTO(unit),
+      isOccupied: !!activeLease,
+      tenant: tenant
+        ? { name: `${tenant.firstName} ${tenant.lastName}` }
+        : null,
+      currentRent: activeLease?.initialRent
+        ? decimalToString(activeLease.initialRent)
+        : null,
+    };
+  });
 
   return paginate(enriched, total, page, limit);
 }
@@ -187,7 +194,6 @@ async function getUnitById(landlordId: string, unitId: string): Promise<UnitDTO>
 async function updateUnit(landlordId: string, unitId: string, data: Partial<CreateUnitInput>): Promise<UnitDTO> {
   const updateData: Record<string, unknown> = { ...data };
 
-  // Convert referenceValue string to Decimal128
   if (data.referenceValue !== undefined) {
     updateData.referenceValue = data.referenceValue ? toDecimal128(data.referenceValue) : null;
   }

@@ -8,15 +8,11 @@ interface DailyRate {
 }
 
 interface MonthlyAverage {
-  month: string;          // "2025-01"
+  month: string;
   avgOficialVenta: number | null;
   avgBlueVenta: number | null;
 }
 
-/**
- * Sync dollar rates from ArgentinaDatos API into DB.
- * Only inserts days not already stored.
- */
 async function syncRates(type: 'oficial' | 'blue'): Promise<number> {
   const lastStored = await DollarRate.findOne({ type }).sort({ date: -1 }).lean();
   const sinceDate = lastStored?.date || '2018-01-01';
@@ -41,18 +37,11 @@ async function syncRates(type: 'oficial' | 'blue'): Promise<number> {
   return result.upsertedCount;
 }
 
-/**
- * Sync both oficial and blue rates.
- */
 async function syncAll(): Promise<{ oficial: number; blue: number }> {
   const [oficial, blue] = await Promise.all([syncRates('oficial'), syncRates('blue')]);
   return { oficial, blue };
 }
 
-/**
- * Get monthly average venta rates for a given year.
- * Returns 12 entries (jan-dec), with null if no data for a month.
- */
 async function getMonthlyAverages(year: number): Promise<MonthlyAverage[]> {
   const startDate = `${year}-01-01`;
   const endDate = `${year}-12-31`;
@@ -65,13 +54,11 @@ async function getMonthlyAverages(year: number): Promise<MonthlyAverage[]> {
 
   for (let m = 1; m <= 12; m++) {
     const month = `${year}-${String(m).padStart(2, '0')}`;
-    const monthPrefix = month; // "2025-01"
-
     const oficialRates = rates.filter(
-      (r) => r.type === 'oficial' && r.date.startsWith(monthPrefix),
+      (r) => r.type === 'oficial' && r.date.startsWith(month),
     );
     const blueRates = rates.filter(
-      (r) => r.type === 'blue' && r.date.startsWith(monthPrefix),
+      (r) => r.type === 'blue' && r.date.startsWith(month),
     );
 
     const avgOficial = oficialRates.length > 0
@@ -87,10 +74,6 @@ async function getMonthlyAverages(year: number): Promise<MonthlyAverage[]> {
   return result;
 }
 
-/**
- * Get monthly averages for a specific set of months (e.g. for previous year comparison).
- * Accepts months as ["2024-01", "2024-02", ...].
- */
 async function getMonthlyAveragesForMonths(months: string[]): Promise<Map<string, { oficial: number | null; blue: number | null }>> {
   if (months.length === 0) return new Map();
 

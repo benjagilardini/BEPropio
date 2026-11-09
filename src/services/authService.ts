@@ -9,8 +9,6 @@ import { AppError } from '../utils/AppError.js';
 import { invitationService } from './invitationService.js';
 import { emailService } from './emailService.js';
 
-// --- DTOs ---
-
 export interface UserDTO {
   id: string;
   firstName: string;
@@ -40,8 +38,6 @@ export interface LoginInput {
   email: string;
   password: string;
 }
-
-// --- Helpers ---
 
 function toUserDTO(user: UserDocument): UserDTO {
   return {
@@ -104,8 +100,6 @@ function clearAuthCookies(res: { clearCookie: Function }): void {
   res.clearCookie('accessToken');
   res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
 }
-
-// --- Service Functions ---
 
 async function register(data: RegisterInput) {
   const existingEmail = await User.findOne({ email: data.email });
@@ -184,7 +178,6 @@ async function refresh(refreshTokenCookie: string | undefined) {
     throw AppError.unauthorized('Sesión expirada. Ingrese nuevamente', 'REFRESH_TOKEN_INVALID');
   }
 
-  // Rotation: delete the used token
   await RefreshToken.deleteOne({ _id: storedToken._id });
 
   const user = await User.findById(payload.userId);
@@ -205,10 +198,8 @@ async function logout(refreshTokenCookie: string | undefined) {
 
 async function forgotPassword(email: string) {
   const user = await User.findOne({ email });
-  if (!user) {
-    // Don't reveal if email exists
-    return;
-  }
+  // Don't reveal whether the email exists
+  if (!user) return;
 
   const resetToken = crypto.randomBytes(32).toString('hex');
   const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
@@ -241,7 +232,6 @@ async function resetPassword(email: string, token: string, newPassword: string) 
   user.lockUntil = null;
   await user.save();
 
-  // Revoke all refresh tokens (close all sessions)
   await RefreshToken.deleteMany({ userId: user._id });
 }
 

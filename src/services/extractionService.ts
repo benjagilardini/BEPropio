@@ -67,7 +67,6 @@ async function extractFieldsWithLLM(
   const fields: Array<{ fieldName: string; value: unknown; sourceText: string | null }> =
     parsed.fields || [];
 
-  // Filter out fields with null values
   return fields.filter((f) => f.value !== null);
 }
 
@@ -78,10 +77,8 @@ async function processLeaseDocument(landlordId: string, leaseId: string) {
     throw AppError.badRequest('El contrato no tiene documento adjunto', 'NO_DOCUMENT');
   }
 
-  // Read PDF from GridFS
   const buffer = await fileService.readFileToBuffer(lease.document.fileId);
 
-  // Extract text
   let text: string;
   try {
     text = await extractTextFromPdf(buffer);
@@ -99,7 +96,6 @@ async function processLeaseDocument(landlordId: string, leaseId: string) {
     );
   }
 
-  // Extract fields with LLM
   let rawFields: Array<{ fieldName: string; value: unknown; sourceText: string | null }>;
   try {
     rawFields = await extractFieldsWithLLM(text);
@@ -111,7 +107,6 @@ async function processLeaseDocument(landlordId: string, leaseId: string) {
     );
   }
 
-  // Map to extractedFields format
   lease.extractedFields = rawFields.map((f) => ({
     fieldName: f.fieldName,
     value: f.value,

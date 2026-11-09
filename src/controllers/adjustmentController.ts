@@ -22,9 +22,13 @@ export const getById = catchAsync(async (req: Request, res: Response) => {
   res.json({ data: adjustment });
 });
 
-export const notify = catchAsync(async (_req: Request, res: Response) => {
-  // Will be implemented with notificationService
-  res.status(501).json({ message: 'Not yet implemented' });
+export const notify = catchAsync(async (req: Request, res: Response) => {
+  await adjustmentService.notifyTenant(
+    req.user!.userId,
+    req.params.leaseId as string,
+    req.params.adjustmentId as string,
+  );
+  res.json({ success: true });
 });
 
 export const compareIndices = catchAsync(async (req: Request, res: Response) => {

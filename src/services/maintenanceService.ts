@@ -1,9 +1,10 @@
 import mongoose from 'mongoose';
-import { MaintenanceRequest } from '../models/MaintenanceRequest.js';
+import { MaintenanceRequest, type IMaintenanceRequest } from '../models/MaintenanceRequest.js';
 import { Lease } from '../models/Lease.js';
 import { AppError } from '../utils/AppError.js';
-import { paginate, getSkip, type PaginatedResult } from '../utils/pagination.js';
+import { paginate, getSkip, DEFAULT_LIMIT, type PaginatedResult } from '../utils/pagination.js';
 import { notificationService } from './notificationService.js';
+import { fileService } from './fileService.js';
 
 interface MaintenanceDTO {
   id: string;
@@ -57,7 +58,8 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
 async function createRequest(
   tenantId: string,
   leaseId: string,
-  data: { category: string; room: string; description: string },
+  data: { category: IMaintenanceRequest['category']; room: string; description: string },
+  files?: Express.Multer.File[],
 ): Promise<MaintenanceDTO> {
   const lease = await Lease.findOne({ _id: leaseId, tenantId, status: 'active' });
   if (!lease) throw AppError.forbidden('No tiene acceso o contrato no activo');
@@ -66,13 +68,21 @@ async function createRequest(
   const nextNumber = lastRequest ? parseInt(lastRequest.code.split('-')[1]) + 1 : 1;
   const code = `MR-${String(nextNumber).padStart(4, '0')}`;
 
+  const photos: Array<{ fileId: mongoose.Types.ObjectId; fileName: string }> = [];
+  if (files?.length) {
+    for (const file of files) {
+      const fileId = await fileService.uploadFile(file.buffer, file.originalname, file.mimetype, { entity: 'maintenance' });
+      photos.push({ fileId, fileName: file.originalname });
+    }
+  }
+
   const request = await MaintenanceRequest.create({
     leaseId,
     code,
-    category: data.category as any,
+    category: data.category,
     room: data.room,
     description: data.description,
-    photos: [],
+    photos,
     status: 'open',
     statusHistory: [{
       status: 'open' as const,
@@ -87,7 +97,7 @@ async function createRequest(
     type: 'maintenance_update',
     title: `Nuevo reclamo: ${code}`,
     message: `${data.category} - ${data.room}: ${data.description.substring(0, 100)}`,
-    relatedEntity: { entityType: 'maintenance', entityId: (request as any)._id },
+    relatedEntity: { entityType: 'maintenance', entityId: request._id },
   });
 
   return toMaintenanceDTO(request);
@@ -107,7 +117,7 @@ async function listByLease(
   if (!lease) throw AppError.notFound('Contrato no encontrado', 'LEASE_NOT_FOUND');
 
   const page = query.page ?? 1;
-  const limit = query.limit ?? 20;
+  const limit = query.limit ?? DEFAULT_LIMIT;
   const skip = getSkip(page, limit);
 
   const [requests, total] = await Promise.all([
@@ -141,7 +151,7 @@ async function updateStatus(
   landlordId: string,
   leaseId: string,
   requestId: string,
-  data: { status: string; comment?: string },
+  data: { status: IMaintenanceRequest['status']; comment?: string },
 ): Promise<MaintenanceDTO> {
   const lease = await Lease.findOne({ _id: leaseId, landlordId });
   if (!lease) throw AppError.notFound('Contrato no encontrado', 'LEASE_NOT_FOUND');
@@ -156,9 +166,9 @@ async function updateStatus(
     );
   }
 
-  request.status = data.status as any;
+  request.status = data.status;
   request.statusHistory.push({
-    status: data.status as any,
+    status: data.status,
     comment: data.comment || null,
     changedBy: new mongoose.Types.ObjectId(landlordId),
     changedAt: new Date(),
@@ -178,9 +188,59 @@ async function updateStatus(
   return toMaintenanceDTO(request);
 }
 
+async function uploadPhotos(
+  tenantId: string,
+  leaseId: string,
+  requestId: string,
+  files: Express.Multer.File[],
+): Promise<MaintenanceDTO> {
+  const lease = await Lease.findOne({ _id: leaseId, tenantId });
+  if (!lease) throw AppError.notFound('Contrato no encontrado', 'LEASE_NOT_FOUND');
+
+  const request = await MaintenanceRequest.findOne({ _id: requestId, leaseId });
+  if (!request) throw AppError.notFound('Reclamo no encontrado', 'REQUEST_NOT_FOUND');
+
+  if (request.photos.length + files.length > 5) {
+    throw AppError.badRequest('Máximo 5 fotos por reclamo', 'MAX_PHOTOS_EXCEEDED');
+  }
+
+  for (const file of files) {
+    const fileId = await fileService.uploadFile(file.buffer, file.originalname, file.mimetype, { entity: 'maintenance' });
+    request.photos.push({ fileId, fileName: file.originalname });
+  }
+  await request.save();
+
+  return toMaintenanceDTO(request);
+}
+
+async function getPhoto(
+  userId: string,
+  leaseId: string,
+  requestId: string,
+  photoIndex: number,
+  role: string,
+) {
+  const leaseQuery: Record<string, unknown> = { _id: leaseId };
+  if (role === 'landlord') leaseQuery.landlordId = userId;
+  else leaseQuery.tenantId = userId;
+
+  const lease = await Lease.findOne(leaseQuery);
+  if (!lease) throw AppError.notFound('Contrato no encontrado', 'LEASE_NOT_FOUND');
+
+  const request = await MaintenanceRequest.findOne({ _id: requestId, leaseId }).lean();
+  if (!request) throw AppError.notFound('Reclamo no encontrado', 'REQUEST_NOT_FOUND');
+
+  const photo = request.photos[photoIndex];
+  if (!photo) throw AppError.notFound('Foto no encontrada', 'PHOTO_NOT_FOUND');
+
+  return fileService.downloadFile(photo.fileId);
+}
+
 export const maintenanceService = {
   createRequest,
   listByLease,
   getById,
   updateStatus,
+  uploadPhotos,
+  getPhoto,
 };

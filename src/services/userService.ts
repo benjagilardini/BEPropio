@@ -46,8 +46,7 @@ async function changePassword(userId: string, data: ChangePasswordInput): Promis
   user.passwordHash = await bcrypt.hash(data.newPassword, config.bcryptSaltRounds);
   await user.save();
 
-  // Revoke all refresh tokens except the current session would be ideal,
-  // but for simplicity we revoke all and the user re-logs in
+  // Revokes all sessions; user must re-login
   await RefreshToken.deleteMany({ userId: user._id });
 }
 

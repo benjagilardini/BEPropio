@@ -2,7 +2,7 @@ import { Expense } from '../models/Expense.js';
 import { Unit } from '../models/Unit.js';
 import { AppError } from '../utils/AppError.js';
 import { toDecimal128, decimalToString } from '../utils/decimal.js';
-import { paginate, getSkip, type PaginatedResult } from '../utils/pagination.js';
+import { paginate, getSkip, DEFAULT_LIMIT, type PaginatedResult } from '../utils/pagination.js';
 
 interface ExpenseDTO {
   id: string;
@@ -70,7 +70,7 @@ async function listExpenses(
   if (query.paidBy) filter.paidBy = query.paidBy;
 
   const page = query.page ?? 1;
-  const limit = query.limit ?? 50;
+  const limit = query.limit ?? DEFAULT_LIMIT;
   const skip = getSkip(page, limit);
 
   const [expenses, total] = await Promise.all([

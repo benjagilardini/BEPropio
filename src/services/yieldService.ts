@@ -8,8 +8,6 @@ import { fromDecimal128, decimalToString } from '../utils/decimal.js';
 import { addMonths, subtractMonths, formatPeriod, daysBetween } from '../utils/dateUtils.js';
 import { dollarService } from './dollarService.js';
 
-// ---- Types ----
-
 interface Warning {
   code: string;
   message: string;
@@ -57,11 +55,12 @@ interface AnnualYieldResult {
   netIncomeUsdOficial: number;
   netIncomeUsdBlue: number;
   dollarComparison: DollarComparison | null;
+  ipcAdjustedVariation: number | null;
+  inflationPercent: number | null;
+  rentIncreasePercent: number | null;
   dollarRates: Array<{ month: string; avgOficialVenta: number | null; avgBlueVenta: number | null }>;
   warnings: Warning[];
 }
-
-// ---- Helpers ----
 
 function formatUnitAddress(unit: any): string {
   const a = unit.address;
@@ -75,10 +74,6 @@ function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
-/**
- * Build a rent timeline for a lease: [{from, to, rent}] segments.
- * Uses initialRent + RentAdjustments to reconstruct what rent was active on each date range.
- */
 interface RentSegment {
   from: Date;
   to: Date;
@@ -103,14 +98,13 @@ async function buildRentTimeline(lease: any): Promise<RentSegment[]> {
     const adjDate = new Date(adj.effectiveDate);
     if (adjDate > effectiveEnd) break;
     if (adjDate <= segmentStart) {
-      // Adjustment at or before segment start — just update rent
       currentRent = fromDecimal128(adj.maxAmount);
       continue;
     }
 
     segments.push({
       from: segmentStart,
-      to: new Date(adjDate.getTime() - 1), // day before adjustment
+      to: new Date(adjDate.getTime() - 1),
       rent: currentRent,
     });
 
@@ -118,7 +112,6 @@ async function buildRentTimeline(lease: any): Promise<RentSegment[]> {
     segmentStart = adjDate;
   }
 
-  // Final segment to end of lease
   if (segmentStart <= effectiveEnd) {
     segments.push({
       from: segmentStart,
@@ -130,11 +123,6 @@ async function buildRentTimeline(lease: any): Promise<RentSegment[]> {
   return segments;
 }
 
-/**
- * Calculate rent for a specific month from rent segments of all leases.
- * Returns { rentArs, daysOccupied, leaseIds }.
- * Handles pro-rata for partial months and overlapping leases.
- */
 function calculateMonthRent(
   year: number,
   month: number,
@@ -145,7 +133,6 @@ function calculateMonthRent(
   const monthStart = new Date(Date.UTC(year, month - 1, 1));
   const monthEnd = new Date(Date.UTC(year, month - 1, totalDays, 23, 59, 59, 999));
 
-  // For each day, find which lease(s) cover it and at what rent
   const dayRents: Array<{ day: number; rent: number; leaseId: string }[]> = [];
   for (let d = 1; d <= totalDays; d++) {
     dayRents.push([]);
@@ -164,7 +151,6 @@ function calculateMonthRent(
     }
   }
 
-  // Check for overlapping leases
   const leaseIdSet = new Set<string>();
   let hasOverlap = false;
   let totalRent = 0;
@@ -178,7 +164,6 @@ function calculateMonthRent(
 
     if (entries.length > 1) {
       hasOverlap = true;
-      // Take the highest rent
       const best = entries.reduce((a, b) => (a.rent > b.rent ? a : b));
       totalRent += best.rent / totalDays;
       leaseIdSet.add(best.leaseId);
@@ -206,8 +191,6 @@ function calculateMonthRent(
   };
 }
 
-// ---- Main function ----
-
 async function calculateAnnualYield(
   landlordId: string,
   unitId: string,
@@ -219,13 +202,9 @@ async function calculateAnnualYield(
   const warnings: Warning[] = [];
   const now = new Date();
   const isIncompleteYear = year === now.getFullYear();
-  const lastMonth = isIncompleteYear ? now.getMonth() : 12; // 1-indexed: Jan=1
+  const lastMonth = isIncompleteYear ? now.getMonth() : 12;
 
   if (isIncompleteYear) {
-    // If we're still in the first days of a month, the last complete month is the previous one
-    const lastCompleteMonth = now.getDate() >= 1 ? now.getMonth() : now.getMonth() - 1;
-    // getMonth() is 0-indexed, so January = 0
-    // We calculate up to the current month (partial)
     warnings.push({
       code: 'INCOMPLETE_YEAR',
       message: `Año en curso. Datos calculados hasta ${new Date(year, lastMonth - 1).toLocaleDateString('es-AR', { month: 'long' })}.`,
@@ -234,7 +213,6 @@ async function calculateAnnualYield(
 
   const calculatedUpToMonth = `${year}-${String(lastMonth).padStart(2, '0')}`;
 
-  // Reference value (USD)
   const referenceValueUsd = unit.referenceValue ? fromDecimal128(unit.referenceValue) : null;
   if (referenceValueUsd === null) {
     warnings.push({
@@ -243,7 +221,6 @@ async function calculateAnnualYield(
     });
   }
 
-  // Find all leases for this unit that overlap with the year
   const yearStart = new Date(Date.UTC(year, 0, 1));
   const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
 
@@ -261,14 +238,12 @@ async function calculateAnnualYield(
     });
   }
 
-  // Build rent timelines for all leases
   const allSegments: Array<{ leaseId: string; segments: RentSegment[] }> = [];
   for (const lease of leases) {
     const segments = await buildRentTimeline(lease);
     allSegments.push({ leaseId: lease._id.toString(), segments });
   }
 
-  // Get expenses (landlord only) for the year
   const expenses = await Expense.find({
     unitId,
     paidBy: 'landlord',
@@ -283,10 +258,8 @@ async function calculateAnnualYield(
     });
   }
 
-  // Get dollar rates for the year
   const dollarAverages = await dollarService.getMonthlyAverages(year);
 
-  // Build monthly breakdown
   const monthlyRent: MonthlyRentEntry[] = [];
   let totalRentArs = 0;
   let totalExpensesArs = 0;
@@ -300,11 +273,9 @@ async function calculateAnnualYield(
     const totalDays = daysInMonth(year, m);
     totalCalcDays += totalDays;
 
-    // Rent
     const { rentArs, daysOccupied, leaseIds } = calculateMonthRent(year, m, allSegments, warnings);
     totalOccupiedDays += daysOccupied;
 
-    // Expenses for this month
     const monthExpenses = expenses.filter((e) => {
       const d = new Date(e.date);
       return d.getUTCFullYear() === year && d.getUTCMonth() === m - 1;
@@ -315,7 +286,6 @@ async function calculateAnnualYield(
     totalRentArs += rentArs;
     totalExpensesArs += expensesArs;
 
-    // Dollar conversion
     const dollarMonth = dollarAverages.find((d) => d.month === monthStr);
     const avgOficial = dollarMonth?.avgOficialVenta ?? null;
     const avgBlue = dollarMonth?.avgBlueVenta ?? null;
@@ -332,7 +302,6 @@ async function calculateAnnualYield(
       netUsdBlueAccum += netUsdBlue;
     }
 
-    // Warn if no dollar rate and there's activity
     if ((avgOficial === null || avgBlue === null) && (rentArs > 0 || expensesArs > 0)) {
       const existing = warnings.find((w) => w.code === 'MISSING_DOLLAR_RATE' && w.message.includes(monthStr));
       if (!existing) {
@@ -358,14 +327,11 @@ async function calculateAnnualYield(
     });
   }
 
-  // Occupancy
   const occupiedMonths = Math.round((totalOccupiedDays / Math.max(totalCalcDays, 1)) * lastMonth * 100) / 100;
   const vacantMonths = Math.round((lastMonth - occupiedMonths) * 100) / 100;
 
-  // Net income
   const netIncomeArs = totalRentArs - totalExpensesArs;
 
-  // Expenses by category
   const catGroups: Record<string, number> = {};
   for (const e of expenses) {
     catGroups[e.category] = (catGroups[e.category] || 0) + fromDecimal128(e.amount);
@@ -375,8 +341,8 @@ async function calculateAnnualYield(
     total: Math.round(total * 100) / 100,
   }));
 
-  // Dollar comparison: rent increase vs devaluation within the year
   const dollarComparison = buildDollarComparison(monthlyRent, dollarAverages, warnings);
+  const ipcResult = await buildIpcAdjustedVariation(monthlyRent, warnings);
 
   return {
     unitId: unit._id.toString(),
@@ -396,6 +362,9 @@ async function calculateAnnualYield(
     netIncomeUsdOficial: Math.round(netUsdOficialAccum * 100) / 100,
     netIncomeUsdBlue: Math.round(netUsdBlueAccum * 100) / 100,
     dollarComparison,
+    ipcAdjustedVariation: ipcResult?.ipcAdjustedVariation ?? null,
+    inflationPercent: ipcResult?.inflationPercent ?? null,
+    rentIncreasePercent: ipcResult?.rentIncreasePercent ?? null,
     dollarRates: dollarAverages.slice(0, lastMonth).map((d) => ({
       month: d.month,
       avgOficialVenta: d.avgOficialVenta !== null ? Math.round(d.avgOficialVenta * 100) / 100 : null,
@@ -405,24 +374,57 @@ async function calculateAnnualYield(
   };
 }
 
-// ---- Dollar comparison: rent increase vs devaluation within the year ----
-
-function buildDollarComparison(
+async function buildIpcAdjustedVariation(
   monthlyRent: MonthlyRentEntry[],
-  dollarAverages: Array<{ month: string; avgOficialVenta: number | null; avgBlueVenta: number | null }>,
   warnings: Warning[],
-): DollarComparison | null {
-  // Find first and last occupied months with rent data
+): Promise<{ ipcAdjustedVariation: number; inflationPercent: number; rentIncreasePercent: number } | null> {
   const occupied = monthlyRent.filter((m) => m.rentArs > 0);
   if (occupied.length < 2) return null;
 
   const first = occupied[0];
   const last = occupied[occupied.length - 1];
 
-  // Rent increase %
   const rentIncreasePercent = ((last.rentArs / first.rentArs) - 1) * 100;
 
-  // Dollar rates for first and last months
+  const firstPeriod = first.month;
+  const lastPeriod = last.month;
+
+  const [firstIpc, lastIpc] = await Promise.all([
+    IndexValue.findOne({ indexType: 'IPC', period: firstPeriod }).lean(),
+    IndexValue.findOne({ indexType: 'IPC', period: lastPeriod }).lean(),
+  ]);
+
+  if (!firstIpc || !lastIpc) {
+    warnings.push({
+      code: 'MISSING_IPC_DATA',
+      message: 'No hay datos de IPC suficientes para calcular la variación real ajustada por inflación.',
+    });
+    return null;
+  }
+
+  const inflationPercent = (fromDecimal128(lastIpc.value) / fromDecimal128(firstIpc.value) - 1) * 100;
+  const ipcAdjustedVariation = rentIncreasePercent - inflationPercent;
+
+  return {
+    ipcAdjustedVariation: Math.round(ipcAdjustedVariation * 100) / 100,
+    inflationPercent: Math.round(inflationPercent * 100) / 100,
+    rentIncreasePercent: Math.round(rentIncreasePercent * 100) / 100,
+  };
+}
+
+function buildDollarComparison(
+  monthlyRent: MonthlyRentEntry[],
+  dollarAverages: Array<{ month: string; avgOficialVenta: number | null; avgBlueVenta: number | null }>,
+  warnings: Warning[],
+): DollarComparison | null {
+  const occupied = monthlyRent.filter((m) => m.rentArs > 0);
+  if (occupied.length < 2) return null;
+
+  const first = occupied[0];
+  const last = occupied[occupied.length - 1];
+
+  const rentIncreasePercent = ((last.rentArs / first.rentArs) - 1) * 100;
+
   const firstDollar = dollarAverages.find((d) => d.month === first.month);
   const lastDollar = dollarAverages.find((d) => d.month === last.month);
 
@@ -451,8 +453,6 @@ function buildDollarComparison(
     beatsDollarBlue: netVsBluePercent >= 0,
   };
 }
-
-// ---- Legacy per-unit yield (unchanged) ----
 
 async function calculateYield(landlordId: string, unitId: string) {
   const { PaymentReceipt } = await import('../models/PaymentReceipt.js');
@@ -516,8 +516,6 @@ async function calculateYield(landlordId: string, unitId: string) {
   };
 }
 
-// Legacy helpers
-
 async function calculateInflationRate(from: Date, to: Date): Promise<number> {
   const fromPeriod = formatPeriod(from);
   const toPeriod = formatPeriod(subtractMonths(to, 1));
@@ -575,8 +573,6 @@ function groupExpensesByCategory(expenses: any[]): Array<{ category: string; tot
     total: total.toFixed(2),
   }));
 }
-
-// ---- Exports ----
 
 export const yieldService = {
   calculateYield,

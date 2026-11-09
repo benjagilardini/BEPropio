@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { expenseService } from '../services/expenseService.js';
 import { yieldService } from '../services/yieldService.js';
+import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 
 export const createExpenseSchema = z.object({
@@ -57,12 +58,17 @@ export const calculateYield = catchAsync(async (req: Request, res: Response) => 
   res.json({ data: result });
 });
 
+const annualYieldQuerySchema = z.object({
+  unitId: z.string().min(1),
+  year: z.coerce.number().int().min(2000).max(2100),
+});
+
 export const getAnnualYield = catchAsync(async (req: Request, res: Response) => {
-  const { unitId, year } = req.query as { unitId?: string; year?: string };
-  if (!unitId || !year) {
-    res.status(400).json({ message: 'unitId y year son obligatorios' });
-    return;
+  const parsed = annualYieldQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    throw AppError.badRequest('unitId y year son obligatorios', 'VALIDATION_ERROR', parsed.error.flatten());
   }
-  const result = await yieldService.calculateAnnualYield(req.user!.userId, unitId, parseInt(year, 10));
+  const { unitId, year } = parsed.data;
+  const result = await yieldService.calculateAnnualYield(req.user!.userId, unitId, year);
   res.json({ data: result });
 });

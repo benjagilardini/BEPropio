@@ -3,11 +3,10 @@ import { Unit } from '../models/Unit.js';
 import { RentAdjustment } from '../models/RentAdjustment.js';
 import { AppError } from '../utils/AppError.js';
 import { toDecimal128, decimalToString } from '../utils/decimal.js';
-import { paginate, getSkip, type PaginatedResult } from '../utils/pagination.js';
+import { paginate, getSkip, DEFAULT_LIMIT, type PaginatedResult } from '../utils/pagination.js';
 import { adjustmentService } from './adjustmentService.js';
 import { fileService } from './fileService.js';
-
-// --- DTOs ---
+import { notificationService } from './notificationService.js';
 
 interface LeaseDTO {
   id: string;
@@ -45,6 +44,8 @@ interface LeaseDTO {
     paidBy: string;
   }>;
   endedAt: string | null;
+  restitutionDate: string | null;
+  unitDestination: 'vacant' | 'renew' | null;
   tenantName: string | null;
   tenantDni: string | null;
   tenantEmail: string | null;
@@ -80,6 +81,8 @@ function toLeaseDTO(lease: any): LeaseDTO {
       paidBy: er.paidBy,
     })),
     endedAt: lease.endedAt ? new Date(lease.endedAt).toISOString() : null,
+    restitutionDate: lease.restitutionDate ? new Date(lease.restitutionDate).toISOString() : null,
+    unitDestination: lease.unitDestination ?? null,
     tenantName: lease.tenantName ?? null,
     tenantDni: lease.tenantDni ?? null,
     tenantEmail: lease.tenantEmail ?? null,
@@ -87,8 +90,6 @@ function toLeaseDTO(lease: any): LeaseDTO {
     updatedAt: lease.updatedAt?.toISOString?.() ?? lease.updatedAt,
   };
 }
-
-// --- Inputs ---
 
 export interface CreateLeaseInput {
   startDate: string;
@@ -101,8 +102,6 @@ export interface CreateLeaseInput {
   tenantDni?: string;
   tenantEmail?: string;
 }
-
-// --- Service ---
 
 async function createLease(
   landlordId: string,
@@ -118,7 +117,6 @@ async function createLease(
     throw AppError.conflict('La unidad ya tiene un contrato activo', 'LEASE_ALREADY_ACTIVE');
   }
 
-  // Upload file to GridFS if provided
   let documentData = null;
   if (file) {
     const fileId = await fileService.uploadFile(file.buffer, file.originalname, file.mimetype, {
@@ -162,7 +160,7 @@ async function listByUnit(
   if (!unit) throw AppError.notFound('Unidad no encontrada', 'UNIT_NOT_FOUND');
 
   const page = query.page ?? 1;
-  const limit = query.limit ?? 20;
+  const limit = query.limit ?? DEFAULT_LIMIT;
   const skip = getSkip(page, limit);
 
   const [leases, total] = await Promise.all([
@@ -272,7 +270,6 @@ async function activateLease(landlordId: string, leaseId: string): Promise<Lease
     }
   }
 
-  // Apply confirmed/corrected extracted values to lease fields
   const fieldMap: Record<string, string> = {
     startDate: 'startDate',
     endDate: 'endDate',
@@ -289,7 +286,6 @@ async function activateLease(landlordId: string, leaseId: string): Promise<Lease
     const val = field.status === 'corrected' ? field.correctedValue : field.value;
     if (val == null) continue;
 
-    // Handle expenseResponsibility separately
     if (field.fieldName === 'expenseResponsibility') {
       const arr = Array.isArray(val) ? val : [];
       const validCategories = new Set(['tax', 'insurance', 'maintenance', 'condominiumFees', 'other']);
@@ -304,20 +300,36 @@ async function activateLease(landlordId: string, leaseId: string): Promise<Lease
     if (!leaseField) continue;
 
     if (leaseField === 'startDate' || leaseField === 'endDate') {
-      (lease as any)[leaseField] = new Date(val as string);
+      lease.set(leaseField, new Date(val as string));
     } else if (leaseField === 'initialRent' || leaseField === 'securityDeposit') {
-      (lease as any)[leaseField] = toDecimal128(String(val));
+      lease.set(leaseField, toDecimal128(String(val)));
     } else if (leaseField === 'adjustmentFrequencyMonths') {
-      (lease as any)[leaseField] = Number(val);
+      lease.set(leaseField, Number(val));
     } else {
-      (lease as any)[leaseField] = val;
+      lease.set(leaseField, val);
     }
   }
 
-  lease.status = 'active';
+  const now = new Date();
+  const isHistorical = lease.endDate < now;
+
+  lease.status = isHistorical ? 'ended' : 'active';
+  if (isHistorical) {
+    lease.endedAt = now;
+  }
   await lease.save();
 
   await adjustmentService.generateAdjustmentsForLease(lease);
+
+  if (lease.tenantId && !isHistorical) {
+    await notificationService.create({
+      userId: lease.tenantId.toString(),
+      type: 'lease_activated',
+      title: 'Contrato activado',
+      message: `Tu contrato fue activado. Vigencia: ${lease.startDate.toLocaleDateString('es-AR')} – ${lease.endDate.toLocaleDateString('es-AR')}.`,
+      relatedEntity: { entityType: 'lease', entityId: lease._id },
+    });
+  }
 
   return toLeaseDTO(lease);
 }
@@ -341,12 +353,18 @@ async function updatePaymentAccount(
   return toLeaseDTO(lease);
 }
 
-async function endLease(landlordId: string, leaseId: string): Promise<LeaseDTO> {
+async function endLease(
+  landlordId: string,
+  leaseId: string,
+  data?: { restitutionDate?: string; unitDestination?: 'vacant' | 'renew' },
+): Promise<LeaseDTO> {
   const lease = await Lease.findOne({ _id: leaseId, landlordId, status: 'active' });
   if (!lease) throw AppError.notFound('Contrato no encontrado o no está activo', 'LEASE_NOT_ACTIVE');
 
   lease.status = 'ended';
   lease.endedAt = new Date();
+  lease.restitutionDate = data?.restitutionDate ? new Date(data.restitutionDate) : new Date();
+  lease.unitDestination = data?.unitDestination ?? null;
   await lease.save();
 
   await RentAdjustment.deleteMany({
@@ -355,20 +373,26 @@ async function endLease(landlordId: string, leaseId: string): Promise<LeaseDTO> 
     status: 'estimated',
   });
 
+  if (lease.tenantId) {
+    await notificationService.create({
+      userId: lease.tenantId.toString(),
+      type: 'lease_ended',
+      title: 'Contrato finalizado',
+      message: 'Tu contrato ha sido finalizado por el propietario.',
+      relatedEntity: { entityType: 'lease', entityId: lease._id },
+    });
+  }
+
   return toLeaseDTO(lease);
 }
 
 async function getUnitForTenant(tenantId: string, leaseId: string) {
   const lease = await Lease.findOne({ _id: leaseId, tenantId }).lean();
   if (!lease) throw AppError.notFound('Contrato no encontrado', 'LEASE_NOT_FOUND');
-  if (lease.status !== 'active') {
-    throw AppError.forbidden('Acceso no disponible para contrato finalizado');
-  }
 
   const unit = await Unit.findById(lease.unitId).lean();
   if (!unit) throw AppError.notFound('Unidad no encontrada', 'UNIT_NOT_FOUND');
 
-  // Return tenant-safe view (no referenceValue, no propertyTaxAccount)
   return {
     id: unit._id.toString(),
     address: unit.address,
@@ -387,7 +411,7 @@ async function getTenantsLeases(tenantId: string) {
     .lean();
 
   return leases.map((lease) => {
-    const unit = lease.unitId as any;
+    const unit = lease.unitId as unknown as { address: { street: string; number: string; floor?: string | null; apartment?: string | null } } | null;
     const addr = unit?.address;
     const address = addr
       ? `${addr.street} ${addr.number}${addr.floor ? `, ${addr.floor}` : ''}${addr.apartment ? `°${addr.apartment}` : ''}`

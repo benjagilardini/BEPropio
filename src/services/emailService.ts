@@ -34,8 +34,6 @@ async function sendMail(to: string, subject: string, html: string): Promise<void
   }
 }
 
-// --- Layout ---
-
 function layout(content: string): string {
   return `<!DOCTYPE html>
 <html lang="es">
@@ -45,17 +43,14 @@ function layout(content: string): string {
     <tr><td align="center">
       <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;">
 
-        <!-- Logo -->
         <tr><td style="padding-bottom:24px;text-align:center;">
           <span style="font-size:28px;font-weight:700;color:#0d47a1;letter-spacing:-0.5px;">Propio</span>
         </td></tr>
 
-        <!-- Card -->
         <tr><td style="background-color:#ffffff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:40px 36px;">
           ${content}
         </td></tr>
 
-        <!-- Footer -->
         <tr><td style="padding-top:24px;text-align:center;">
           <p style="margin:0;font-size:12px;color:#9e9e9e;line-height:1.6;">
             Este correo fue enviado por Propio.<br>
@@ -87,8 +82,6 @@ function divider(): string {
 function footnote(text: string): string {
   return `<p style="margin:0;font-size:13px;color:#9e9e9e;line-height:1.5;text-align:center;">${text}</p>`;
 }
-
-// --- Templates ---
 
 async function sendInvitation(
   to: string,

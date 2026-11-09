@@ -4,7 +4,7 @@ import { Lease } from '../models/Lease.js';
 import { RentAdjustment } from '../models/RentAdjustment.js';
 import { AppError } from '../utils/AppError.js';
 import { toDecimal128, fromDecimal128, decimalToString } from '../utils/decimal.js';
-import { paginate, getSkip, type PaginatedResult } from '../utils/pagination.js';
+import { paginate, getSkip, DEFAULT_LIMIT, type PaginatedResult } from '../utils/pagination.js';
 import { notificationService } from './notificationService.js';
 import { fileService } from './fileService.js';
 
@@ -115,7 +115,7 @@ async function listByLease(
   if (!lease) throw AppError.notFound('Contrato no encontrado', 'LEASE_NOT_FOUND');
 
   const page = query.page ?? 1;
-  const limit = query.limit ?? 20;
+  const limit = query.limit ?? DEFAULT_LIMIT;
   const skip = getSkip(page, limit);
 
   const [payments, total] = await Promise.all([

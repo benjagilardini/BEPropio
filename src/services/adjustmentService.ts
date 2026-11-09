@@ -2,12 +2,11 @@ import mongoose from 'mongoose';
 import { RentAdjustment } from '../models/RentAdjustment.js';
 import { IndexValue } from '../models/IndexValue.js';
 import { Lease, type LeaseDocument } from '../models/Lease.js';
+import { notificationService } from './notificationService.js';
 import { AppError } from '../utils/AppError.js';
 import { toDecimal128, fromDecimal128, decimalToString } from '../utils/decimal.js';
 import { addMonths, subtractMonths, formatPeriod, formatDateISO, daysBetween, getRequiredPeriods } from '../utils/dateUtils.js';
-import { paginate, getSkip, type PaginatedResult } from '../utils/pagination.js';
-
-// --- DTOs ---
+import { paginate, getSkip, DEFAULT_LIMIT, type PaginatedResult } from '../utils/pagination.js';
 
 interface AdjustmentDTO {
   id: string;
@@ -44,8 +43,6 @@ function toAdjustmentDTO(adj: any): AdjustmentDTO {
     updatedAt: adj.updatedAt?.toISOString?.() ?? adj.updatedAt,
   };
 }
-
-// --- Coefficient Calculation ---
 
 interface CoefficientResult {
   minCoefficient: number;
@@ -174,14 +171,12 @@ function calculateDailyIndexCoefficients(
   };
 }
 
-// --- Service Functions ---
-
 async function generateAdjustmentsForLease(lease: LeaseDocument): Promise<void> {
   const { startDate, endDate, adjustmentFrequencyMonths, initialRent, adjustmentIndex } = lease;
 
   const adjustments: any[] = [];
   let currentDate = addMonths(new Date(startDate), adjustmentFrequencyMonths);
-  let previousRent = initialRent;
+  let previousRent: mongoose.Types.Decimal128 = initialRent;
 
   while (currentDate <= endDate) {
     const periodStart = subtractMonths(currentDate, adjustmentFrequencyMonths);
@@ -195,7 +190,6 @@ async function generateAdjustmentsForLease(lease: LeaseDocument): Promise<void> 
     const availablePeriodSet = new Set(availableValues.map((v) => v.period));
     const pendingPeriods = requiredPeriods.filter((p) => !availablePeriodSet.has(p));
 
-    // When exact periods are missing, fetch recent values for estimation
     let valuesForCalculation = availableValues;
     if (pendingPeriods.length > 0) {
       const recentLimit = adjustmentIndex === 'IPC' ? 12 : 60;
@@ -214,17 +208,17 @@ async function generateAdjustmentsForLease(lease: LeaseDocument): Promise<void> 
     const { minCoefficient, maxCoefficient, startValue, endValue } =
       calculateCoefficients(adjustmentIndex, valuesForCalculation, pendingPeriods, periodStart, currentDate);
 
-    const prevRentNum = typeof previousRent === 'number' ? previousRent : fromDecimal128(previousRent as any);
+    const prevRentNum = fromDecimal128(previousRent);
     const minAmount = prevRentNum * minCoefficient;
     const maxAmount = prevRentNum * maxCoefficient;
-    const status = pendingPeriods.length === 0 ? 'confirmed' : 'estimated';
+    const status = pendingPeriods.length === 0 ? 'final' : 'estimated';
 
     adjustments.push({
       leaseId: lease._id,
       effectiveDate: new Date(currentDate),
-      previousRent: typeof previousRent === 'number' ? toDecimal128(previousRent) : previousRent,
+      previousRent,
       startIndexValue: startValue,
-      endIndexValue: status === 'confirmed' ? endValue : null,
+      endIndexValue: status === 'final' ? endValue : null,
       minCoefficient: toDecimal128(minCoefficient),
       maxCoefficient: toDecimal128(maxCoefficient),
       minAmount: toDecimal128(minAmount),
@@ -233,7 +227,7 @@ async function generateAdjustmentsForLease(lease: LeaseDocument): Promise<void> 
       status,
     });
 
-    previousRent = toDecimal128(maxAmount) as any;
+    previousRent = toDecimal128(maxAmount);
     currentDate = addMonths(currentDate, adjustmentFrequencyMonths);
   }
 
@@ -256,7 +250,7 @@ async function listByLease(
   if (!lease) throw AppError.notFound('Contrato no encontrado', 'LEASE_NOT_FOUND');
 
   const page = query.page ?? 1;
-  const limit = query.limit ?? 20;
+  const limit = query.limit ?? DEFAULT_LIMIT;
   const skip = getSkip(page, limit);
 
   const [adjustments, total] = await Promise.all([
@@ -284,8 +278,6 @@ async function getById(userId: string, leaseId: string, adjustmentId: string, ro
 
   return toAdjustmentDTO(adjustment);
 }
-
-// --- Adjustment Summary ---
 
 interface IndexStatsDTO {
   lastValue: string;
@@ -332,7 +324,6 @@ function computeMonthlyVariations(values: Array<{ period: string; value: any }>,
   const sorted = [...values].sort((a, b) => a.period.localeCompare(b.period));
 
   if (!isDaily) {
-    // Monthly index: variation between consecutive months
     const vars: number[] = [];
     for (let i = 1; i < sorted.length; i++) {
       const prev = fromDecimal128(sorted[i - 1].value);
@@ -342,9 +333,7 @@ function computeMonthlyVariations(values: Array<{ period: string; value: any }>,
     return vars;
   }
 
-  // Daily index: compute monthly variation by sampling ~30 day intervals
   const vars: number[] = [];
-  const first = sorted[0];
   let refIdx = 0;
   for (let i = 1; i < sorted.length; i++) {
     const daysDiff = daysBetween(new Date(sorted[refIdx].period), new Date(sorted[i].period));
@@ -366,7 +355,6 @@ function computePeriodVariation(values: Array<{ period: string; value: any }>, m
   const targetDate = subtractMonths(lastDate, months);
   const targetStr = targetDate.toISOString().split('T')[0];
 
-  // Find the value closest to targetDate
   let closest = sorted[0];
   for (const v of sorted) {
     if (v.period <= targetStr) closest = v;
@@ -394,7 +382,6 @@ async function getAdjustmentSummary(userId: string, leaseId: string, role?: stri
   const nextAdj = adjustments.find((a) => a.effectiveDate > now) ?? null;
   const daysUntilNext = nextAdj ? daysBetween(now, nextAdj.effectiveDate) : null;
 
-  // Current rent = previousRent of next adjustment, or maxAmount of last past adjustment, or initialRent
   const pastAdjs = adjustments.filter((a) => a.effectiveDate <= now);
   const lastPast = pastAdjs[pastAdjs.length - 1];
   const currentRent = nextAdj
@@ -407,7 +394,6 @@ async function getAdjustmentSummary(userId: string, leaseId: string, role?: stri
   const currentRentNum = parseFloat(currentRent);
   const totalVariation = initialRentNum > 0 ? (currentRentNum / initialRentNum - 1) * 100 : 0;
 
-  // Index stats: fetch recent values
   const isDaily = lease.adjustmentIndex !== 'IPC';
   const recentLimit = isDaily ? 365 : 12;
   const recentValues = await IndexValue.find({ indexType: lease.adjustmentIndex })
@@ -426,7 +412,6 @@ async function getAdjustmentSummary(userId: string, leaseId: string, role?: stri
   const sortedRecent = [...recentValues].sort((a, b) => a.period.localeCompare(b.period));
   const lastVal = sortedRecent[sortedRecent.length - 1];
 
-  // Trend: sample ~12 points for the chart
   const trendSource = isDaily
     ? sortedRecent.filter((_, i, arr) => i % Math.max(1, Math.floor(arr.length / 12)) === 0 || i === arr.length - 1)
     : sortedRecent;
@@ -444,7 +429,6 @@ async function getAdjustmentSummary(userId: string, leaseId: string, role?: stri
     trend,
   };
 
-  // Timeline
   const timeline: TimelineEntryDTO[] = adjustments.map((a) => {
     const minCoef = fromDecimal128(a.minCoefficient);
     const maxCoef = fromDecimal128(a.maxCoefficient);
@@ -464,7 +448,6 @@ async function getAdjustmentSummary(userId: string, leaseId: string, role?: stri
     };
   });
 
-  // Contract progress
   const totalDays = daysBetween(lease.startDate, lease.endDate);
   const elapsed = daysBetween(lease.startDate, now);
   const contractProgress = totalDays > 0 ? Math.max(0, Math.min(100, Math.round((elapsed / totalDays) * 100))) : 0;
@@ -487,8 +470,6 @@ async function getAdjustmentSummary(userId: string, leaseId: string, role?: stri
   };
 }
 
-// --- Index Comparison ---
-
 interface IndexEvolutionDTO {
   currentRent: string;
   totalVariation: string;
@@ -505,11 +486,6 @@ interface IndexComparisonDTO {
   UVA: IndexEvolutionDTO;
 }
 
-/**
- * Simulate the rent evolution for one index over a window of adjustment dates.
- * `baseRent` is the rent at the start of the window (same for all indices).
- * `adjustmentDates` are the lease-frequency-aligned dates that fall within the window.
- */
 async function simulateIndexEvolution(
   baseRent: number,
   windowStart: Date,
@@ -527,7 +503,6 @@ async function simulateIndexEvolution(
   let previousDate = windowStart;
 
   for (const adjDate of adjustmentDates) {
-    // Accumulate income for period before this adjustment
     const periodEnd = adjDate < windowEnd ? adjDate : windowEnd;
     if (periodEnd > previousDate) {
       const months = (periodEnd.getTime() - previousDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
@@ -536,7 +511,6 @@ async function simulateIndexEvolution(
 
     if (adjDate > windowEnd) break;
 
-    // Calculate coefficient for this adjustment period
     const periodStart = subtractMonths(adjDate, frequencyMonths);
     const requiredPeriods = getRequiredPeriods(indexType, periodStart, adjDate);
     const availableValues = await IndexValue.find({
@@ -569,11 +543,9 @@ async function simulateIndexEvolution(
     previousDate = adjDate;
   }
 
-  // Remaining income from last adjustment to window end
   if (windowEnd > previousDate) {
     const months = (windowEnd.getTime() - previousDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44);
     totalCollected += currentRent * months;
-    // Add closing point so the chart extends to the contract end
     history.push({ date: windowEnd.toISOString(), rent: currentRent.toFixed(2) });
   }
 
@@ -595,13 +567,11 @@ async function compareIndices(userId: string, leaseId: string): Promise<IndexCom
   const leaseStart = new Date(lease.startDate);
   const leaseEnd = new Date(lease.endDate);
 
-  // Window: full contract life (up to today if still active)
   const windowStart = leaseStart;
   const windowEnd = leaseEnd < now ? leaseEnd : now;
 
   const initialRentNum = fromDecimal128(lease.initialRent);
 
-  // All adjustment dates within the contract period up to now
   const adjustmentDates: Date[] = [];
   let adjDate = addMonths(leaseStart, lease.adjustmentFrequencyMonths);
   while (adjDate <= leaseEnd && adjDate <= windowEnd) {
@@ -626,6 +596,27 @@ async function compareIndices(userId: string, leaseId: string): Promise<IndexCom
   };
 }
 
+async function notifyTenant(userId: string, leaseId: string, adjustmentId: string): Promise<void> {
+  const lease = await Lease.findOne({ _id: leaseId, landlordId: userId });
+  if (!lease) throw AppError.notFound('Contrato no encontrado', 'LEASE_NOT_FOUND');
+  if (!lease.tenantId) throw AppError.badRequest('El contrato no tiene inquilino asignado', 'NO_TENANT');
+
+  const adjustment = await RentAdjustment.findOne({ _id: adjustmentId, leaseId });
+  if (!adjustment) throw AppError.notFound('Ajuste no encontrado', 'ADJUSTMENT_NOT_FOUND');
+
+  const amount = adjustment.minAmount.toString() === adjustment.maxAmount.toString()
+    ? `$${decimalToString(adjustment.maxAmount)}`
+    : `$${decimalToString(adjustment.minAmount)} – $${decimalToString(adjustment.maxAmount)}`;
+
+  await notificationService.create({
+    userId: lease.tenantId.toString(),
+    type: 'adjustment_notified',
+    title: 'Nuevo ajuste de alquiler',
+    message: `Tu alquiler se actualiza a ${amount} a partir del ${new Date(adjustment.effectiveDate).toLocaleDateString('es-AR')}.`,
+    relatedEntity: { entityType: 'adjustment', entityId: adjustment._id },
+  });
+}
+
 export const adjustmentService = {
   generateAdjustmentsForLease,
   listByLease,
@@ -635,4 +626,5 @@ export const adjustmentService = {
   calculateCoefficients,
   simulateIndexEvolution,
   toAdjustmentDTO,
+  notifyTenant,
 };

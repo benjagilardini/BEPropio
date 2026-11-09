@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import { Notification } from '../models/Notification.js';
 import { AppError } from '../utils/AppError.js';
-import { paginate, getSkip, type PaginatedResult } from '../utils/pagination.js';
+import { paginate, getSkip, DEFAULT_LIMIT, type PaginatedResult } from '../utils/pagination.js';
 import { getIO } from '../config/socket.js';
 
 interface CreateNotificationInput {
@@ -57,7 +57,8 @@ async function create(input: CreateNotificationInput) {
 
   try {
     getIO().to(`user:${input.userId}`).emit('notification', toNotificationDTO(notification));
-  } catch { /* socket not initialized in tests */ }
+  } catch { // socket may not be initialized in tests
+  }
 
   return notification;
 }
@@ -67,7 +68,7 @@ async function listForUser(
   query: { page?: number; limit?: number; unreadOnly?: boolean },
 ): Promise<PaginatedResult<NotificationDTO>> {
   const page = query.page ?? 1;
-  const limit = query.limit ?? 20;
+  const limit = query.limit ?? DEFAULT_LIMIT;
   const skip = getSkip(page, limit);
 
   const filter: Record<string, unknown> = { userId };

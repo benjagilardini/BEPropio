@@ -11,8 +11,6 @@ interface IndexEntry {
   publishedAt: Date | null;
 }
 
-// --- IPC: datos.gob.ar series API ---
-
 const IPC_SERIES_ID = '193.2_NIVEL_GENERAL_2021_0_13_2';
 
 async function fetchIpc(fromDate: string): Promise<IndexEntry[]> {
@@ -30,7 +28,6 @@ async function fetchIpc(fromDate: string): Promise<IndexEntry[]> {
   const entries: IndexEntry[] = [];
   for (const [dateStr, value] of data.data ?? []) {
     if (value == null) continue;
-    // dateStr is "YYYY-MM-DD" (first of month); period format for IPC is "YYYY-MM"
     const period = dateStr.substring(0, 7);
     entries.push({
       indexType: 'IPC',
@@ -41,8 +38,6 @@ async function fetchIpc(fromDate: string): Promise<IndexEntry[]> {
   }
   return entries;
 }
-
-// --- UVA: argentinadatos API ---
 
 async function fetchUva(fromDate: string): Promise<IndexEntry[]> {
   const url = 'https://api.argentinadatos.com/v1/finanzas/indices/uva';
@@ -55,7 +50,7 @@ async function fetchUva(fromDate: string): Promise<IndexEntry[]> {
     if (item.fecha < fromDate) continue;
     entries.push({
       indexType: 'UVA',
-      period: item.fecha, // YYYY-MM-DD
+      period: item.fecha,
       value: item.valor,
       publishedAt: new Date(item.fecha),
     });
@@ -63,12 +58,9 @@ async function fetchUva(fromDate: string): Promise<IndexEntry[]> {
   return entries;
 }
 
-// --- ICL: BCRA Excel download ---
-
 const ICL_XLS_URL = 'https://www.bcra.gob.ar/Pdfs/PublicacionesEstadisticas/diar_icl.xls';
 
 function parseIclDate(raw: string): string | null {
-  // Format: DD/MM/YYYY → YYYY-MM-DD
   const parts = raw.split('/');
   if (parts.length !== 3) return null;
   const [dd, mm, yyyy] = parts;
@@ -104,8 +96,6 @@ async function fetchIcl(fromDate: string): Promise<IndexEntry[]> {
   }
   return entries;
 }
-
-// --- Sync logic ---
 
 async function upsertEntries(entries: IndexEntry[]): Promise<number> {
   if (entries.length === 0) return 0;
